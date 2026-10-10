@@ -1,4 +1,4 @@
-﻿# Super Zaman Bros. â€” A Yale SOM Adventure
+# Super Zaman Bros. â€” A Yale SOM Adventure
 
 A two-level, Mario-style platformer made for MGT 409 (Vibe Coding for Management).
 
@@ -15,6 +15,9 @@ collect Yale ID cards, and drink soda to power up on your way through
 | Jump (hold for higher) | Space / Z / Up |
 | Run | Shift / X |
 | Pause / Mute | P / M |
+
+**On a phone or tablet?** Choose **Mobile** on the start screen for an on-screen joystick plus JUMP and RUN buttons
+(push the joystick all the way to run too). Works in portrait, best in landscape.
 
 ## Run locally
 It's a single `index.html` with no dependencies â€” just open it in a browser.

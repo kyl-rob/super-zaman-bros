@@ -2,16 +2,48 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>Super Zaman Bros. — A Yale SOM Adventure</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
   html,body{margin:0;height:100%;background:#060b18;display:flex;align-items:center;justify-content:center;overflow:hidden}
   canvas{width:min(100vw,177.78vh);height:auto;aspect-ratio:16/9;box-shadow:0 0 60px #000;outline:none}
+  /* ---- touch controls (mobile mode only) ---- */
+  body.mobile{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  body.mobile canvas{touch-action:none}
+  #touch{display:none;position:fixed;inset:0;pointer-events:none;z-index:5;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  body.mobile #touch{display:block}
+  #stick{position:absolute;left:max(18px,env(safe-area-inset-left));bottom:max(18px,env(safe-area-inset-bottom));
+    width:clamp(110px,30vmin,170px);aspect-ratio:1;border-radius:50%;pointer-events:auto;touch-action:none;
+    background:radial-gradient(circle,rgba(255,255,255,.08),rgba(255,255,255,.2));border:3px solid rgba(255,255,255,.4);
+    display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+  #stick::before,#stick::after{content:'';position:absolute;top:50%;width:0;height:0;margin-top:-9px;border:9px solid transparent}
+  #stick::before{left:6px;border-right-color:rgba(255,255,255,.45)}
+  #stick::after{right:6px;border-left-color:rgba(255,255,255,.45)}
+  #knob{width:46%;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe9a0,#ffd54f 45%,#c99a16);
+    box-shadow:0 3px 10px rgba(0,0,0,.55);pointer-events:none}
+  .tbtn{position:absolute;width:clamp(68px,19vmin,104px);aspect-ratio:1;border-radius:50%;pointer-events:auto;touch-action:none;
+    display:flex;align-items:center;justify-content:center;font:clamp(9px,2.4vmin,12px) "Press Start 2P",monospace;color:#fff;
+    text-shadow:2px 2px 0 rgba(0,0,0,.6);border:3px solid rgba(255,255,255,.55);box-shadow:0 4px 18px rgba(0,0,0,.4);transition:transform .05s}
+  .tbtn.on{transform:scale(.9);filter:brightness(1.35)}
+  #btnJump{right:max(18px,env(safe-area-inset-right));bottom:calc(max(18px,env(safe-area-inset-bottom)) + clamp(34px,9vmin,52px));background:rgba(0,53,107,.8)}
+  #btnRun{right:calc(max(18px,env(safe-area-inset-right)) + clamp(68px,19vmin,104px) + 16px);bottom:max(18px,env(safe-area-inset-bottom));background:rgba(179,38,30,.75)}
+  #rotate{display:none;position:absolute;top:max(14px,env(safe-area-inset-top));left:0;right:0;text-align:center;
+    font:10px "Press Start 2P",monospace;color:#cfe0ff;line-height:1.6}
+  @media (orientation:portrait){ body.mobile #rotate{display:block} }
 </style>
 </head>
 <body>
 <canvas id="c" width="960" height="540" tabindex="0"></canvas>
+<div id="touch">
+  <div id="rotate">TIP: TURN YOUR PHONE SIDEWAYS<br>FOR A BIGGER SCREEN</div>
+  <div id="stick"><div id="knob"></div></div>
+  <div class="tbtn" id="btnRun">RUN</div>
+  <div class="tbtn" id="btnJump">JUMP</div>
+</div>
 <script>
 "use strict";
 // =====================================================================
@@ -35,12 +67,13 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
-const JUMP_KEYS = ['Space','KeyZ','ArrowUp','KeyW'];
+// Touch controls feed the same keys/pressed tables using virtual "Touch*" codes.
+const JUMP_KEYS = ['Space','KeyZ','ArrowUp','KeyW','TouchJump'];
 const K = {
-  left:  () => keys.ArrowLeft || keys.KeyA,
-  right: () => keys.ArrowRight || keys.KeyD,
+  left:  () => keys.ArrowLeft || keys.KeyA || keys.TouchLeft,
+  right: () => keys.ArrowRight || keys.KeyD || keys.TouchRight,
   jump:  () => JUMP_KEYS.some(k => keys[k]),
-  run:   () => keys.ShiftLeft || keys.ShiftRight || keys.KeyX,
+  run:   () => keys.ShiftLeft || keys.ShiftRight || keys.KeyX || keys.TouchRun || keys.TouchDash,
 };
 const hit = (...codes) => codes.some(c => pressed[c]);
 
@@ -283,7 +316,9 @@ const isEnemy = e => e.kind === 'book' || e.kind === 'heavy';
 const ENEMY_LIVE = ['walk', 'shell', 'slide'];
 
 // ---------------------------------------------------------------- game state
-const G = { state: 'title', sel: 0, charIdx: 0, lives: 3, score: 0, cards: 0, totalCards: 0, levelIdx: 0, time: 300, timeAcc: 0,
+const IS_TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+const G = { state: 'device', mobile: false,
+  devSel: localStorage.getItem('szb_dev') ? +(localStorage.getItem('szb_dev') === 'mobile') : +IS_TOUCH, sel: 0, charIdx: 0, lives: 3, score: 0, cards: 0, totalCards: 0, levelIdx: 0, time: 300, timeAcc: 0,
   frame: 0, timer: 0, freeze: 0, growT: 0, paused: false, checkpoint: false, carryBig: false, ents: [], parts: [], bumps: [],
   camX: 0, flagY: 0, hi: +(localStorage.getItem('szb_hi') || 0) };
 G.titleBg = makeBg({ w: 4000, theme: 'day', world: 'T' });
@@ -422,6 +457,7 @@ function update() {
   G.frame++;
   if (hit('KeyM')) { audio.muted = !audio.muted; if (audio.muted) music.stop(); else if (G.state === 'play' && !G.paused) music.start(SONGS[G.levelIdx]); }
   switch (G.state) {
+    case 'device': updateDevice(); break;
     case 'title': updateTitle(); break;
     case 'intro': if (++G.timer > 150) { G.state = 'play'; if (!audio.muted) music.start(SONGS[G.levelIdx]); } break;
     case 'play':
@@ -430,17 +466,35 @@ function update() {
       break;
     case 'dying': updateDying(); break;
     case 'flag': updateFlag(); break;
-    case 'gameover': if (++G.timer > 260 || (G.timer > 60 && hit('Enter', 'Space'))) G.state = 'title'; break;
+    case 'gameover': if (++G.timer > 260 || (G.timer > 60 && hit('Enter', 'Space', 'TouchJump'))) G.state = 'title'; break;
     case 'win': updateWin(); break;
   }
   for (const k in pressed) delete pressed[k];
 }
 
+function updateDevice() {
+  if (hit('ArrowLeft', 'KeyA', 'ArrowRight', 'KeyD')) { G.devSel ^= 1; sfx.tick(); }
+  if (hit('Enter', 'Space')) chooseDevice(G.devSel === 1);
+}
+function chooseDevice(mobile) {
+  G.mobile = mobile; G.devSel = +mobile; G.state = 'title';
+  localStorage.setItem('szb_dev', mobile ? 'mobile' : 'desktop');
+  document.body.classList.toggle('mobile', mobile);
+  sfx.card();
+  if (mobile) {   // best effort: fullscreen + landscape (ignored where unsupported, e.g. iPhone Safari)
+    const el = document.documentElement, fs = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (fs && !document.fullscreenElement) {
+      try { Promise.resolve(fs.call(el)).then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape')).catch(() => {}); } catch (e) {}
+    }
+  } else cv.focus();
+}
+
 function updateTitle() {
   const n = CHARS.length;
-  if (hit('ArrowLeft', 'KeyA')) { G.sel = (G.sel + n - 1) % n; sfx.tick(); }
-  if (hit('ArrowRight', 'KeyD')) { G.sel = (G.sel + 1) % n; sfx.tick(); }
-  if (hit('Enter', 'Space')) { sfx.card(); startGame(); }
+  if (hit('ArrowLeft', 'KeyA', 'TouchLeft')) { G.sel = (G.sel + n - 1) % n; sfx.tick(); }
+  if (hit('ArrowRight', 'KeyD', 'TouchRight')) { G.sel = (G.sel + 1) % n; sfx.tick(); }
+  if (hit('Enter', 'Space', 'TouchJump')) { sfx.card(); startGame(); }
+  if (hit('Escape', 'Backspace')) { G.state = 'device'; sfx.tick(); }
 }
 
 function updatePlay() {
@@ -633,7 +687,7 @@ function updateWin() {
     if (G.timer % 50 === 0) audio.tone(120 + Math.random() * 80, 0.3, 'sawtooth', 0.12, 40);
   }
   updateParticles();
-  if (G.timer > 60 && hit('Enter', 'Space')) G.state = 'title';
+  if (G.timer > 60 && hit('Enter', 'Space', 'TouchJump')) G.state = 'title';
 }
 function saveHi() { if (G.score > G.hi) { G.hi = G.score; localStorage.setItem('szb_hi', G.hi); } }
 
@@ -1017,7 +1071,44 @@ function drawHUD() {
 
 // ---------------------------------------------------------------- screens
 const PANEL = i => ({ x: 30 + i * 230, y: 165, w: 210, h: 290 });
-function drawTitle() {
+const DEV_BOX = i => ({ x: i ? W / 2 + 20 : W / 2 - 300, y: 170, w: 280, h: 240 });
+const BACK_BTN = { x: 12, y: 8, w: 92, h: 26 };
+const PAUSE_BTN = { x: 764, y: 12, w: 46, h: 42 };
+const PAUSE_MENU = [{ x: W / 2 - 150, y: 300, w: 300, h: 50 }, { x: W / 2 - 150, y: 365, w: 300, h: 50 }];
+const inRect = (mx, my, R) => mx > R.x && mx < R.x + R.w && my > R.y && my < R.y + R.h;
+
+function drawDevice() {
+  drawTitleBackdrop();
+  text('HOW ARE YOU PLAYING?', W / 2, 128, 16, '#fff', 'center');
+  for (let i = 0; i < 2; i++) {
+    const B = DEV_BOX(i), sel = G.devSel === i, cx = B.x + B.w / 2, y = B.y + (sel ? Math.sin(G.frame * 0.1) * 3 : 0);
+    ctx.fillStyle = sel ? 'rgba(0,53,107,0.94)' : 'rgba(10,20,40,0.8)'; rr(B.x, y, B.w, B.h, 14); ctx.fill();
+    ctx.lineWidth = sel ? 5 : 2; ctx.strokeStyle = sel ? '#ffd54f' : 'rgba(255,255,255,0.35)'; ctx.stroke();
+    if (i === 0) {   // keyboard icon
+      ctx.fillStyle = '#d9dee6'; rr(cx - 85, y + 45, 170, 80, 8); ctx.fill();
+      ctx.fillStyle = '#5d6a78';
+      for (let r = 0; r < 3; r++) for (let k = 0; k < 10; k++) { rr(cx - 76 + k * 15.5 + r * 4, y + 53 + r * 16, 12, 12, 2); ctx.fill(); }
+      rr(cx - 45, y + 104, 90, 12, 2); ctx.fill();
+      text('DESKTOP', cx, y + 148, 18, sel ? '#ffd54f' : '#fff', 'center');
+      text('KEYBOARD CONTROLS', cx, y + 180, 8, '#cfe0ff', 'center');
+      text('ARROWS + SPACE + SHIFT', cx, y + 200, 7, '#9fb7d8', 'center');
+    } else {         // phone icon with joystick + buttons
+      ctx.fillStyle = '#1b1f27'; rr(cx - 90, y + 40, 180, 92, 16); ctx.fill();
+      ctx.strokeStyle = '#9aa4b2'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.fillStyle = '#4f9cf0'; rr(cx - 74, y + 49, 148, 74, 4); ctx.fill();
+      ctx.fillStyle = '#c7a46c'; ctx.fillRect(cx - 74, y + 108, 148, 15);
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; circle(cx - 52, y + 104, 15); ctx.fillStyle = '#ffd54f'; circle(cx - 52, y + 104, 7);
+      ctx.fillStyle = '#b3261e'; circle(cx + 36, y + 110, 9); ctx.fillStyle = '#00356b'; circle(cx + 58, y + 98, 10);
+      text('MOBILE', cx, y + 148, 18, sel ? '#ffd54f' : '#fff', 'center');
+      text('TOUCH CONTROLS', cx, y + 180, 8, '#cfe0ff', 'center');
+      text('JOYSTICK + JUMP + RUN', cx, y + 200, 7, '#9fb7d8', 'center');
+    }
+  }
+  if (G.frame % 60 < 40) text(IS_TOUCH ? 'TAP YOUR CHOICE' : 'CLICK YOUR CHOICE  -  OR  < >  AND  ENTER', W / 2, 440, 11, '#fff', 'center');
+  if (IS_TOUCH) text('TOUCH SCREEN DETECTED', W / 2, 466, 8, '#ffd54f', 'center');
+}
+
+function drawTitleBackdrop() {
   const cam = G.frame * 0.8;
   drawBackground('day', G.titleBg, cam);
   const th = THEMES.day;
@@ -1030,7 +1121,13 @@ function drawTitle() {
   ctx.lineWidth = 8; ctx.strokeStyle = '#fff'; ctx.lineJoin = 'round'; ctx.strokeText('SUPER ZAMAN BROS.', lx, ly);
   ctx.fillStyle = '#00356b'; ctx.fillText('SUPER ZAMAN BROS.', lx, ly);
   text('~ A YALE SOM ADVENTURE ~', W / 2, 92, 12, '#ffd54f', 'center');
+}
+
+function drawTitle() {
+  drawTitleBackdrop();
   text('CHOOSE YOUR PLAYER', W / 2, 128, 14, '#fff', 'center');
+  ctx.fillStyle = 'rgba(10,20,40,0.7)'; rr(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h, 6); ctx.fill();
+  text('< DEVICE', BACK_BTN.x + BACK_BTN.w / 2, BACK_BTN.y + 9, 8, '#cfe0ff', 'center', false);
   for (let i = 0; i < CHARS.length; i++) {
     const P = PANEL(i), sel = i === G.sel, c = CHARS[i];
     ctx.fillStyle = sel ? 'rgba(0,53,107,0.92)' : 'rgba(10,20,40,0.75)'; rr(P.x, P.y, P.w, P.h, 12); ctx.fill();
@@ -1044,16 +1141,34 @@ function drawTitle() {
       ctx.fillStyle = '#ffd54f'; ctx.fillRect(P.x + 76, yy, 118 * v, 9); };
     bar('SPEED', c.run / 6.3, P.y + 244); bar('JUMP', (c.jump - 10) / 4.4, P.y + 262);
   }
-  if (G.frame % 60 < 40) text('<  >  CHOOSE     ENTER  START', W / 2, 474, 12, '#fff', 'center');
-  text('MOVE: ARROWS/WASD  JUMP: SPACE/Z  RUN: SHIFT/X  P: PAUSE  M: MUTE', W / 2, 500, 8, '#cfe0ff', 'center');
+  if (G.mobile) {
+    if (G.frame % 60 < 40) text('TAP A PLAYER  -  TAP AGAIN (OR JUMP) TO START', W / 2, 474, 11, '#fff', 'center');
+    text('JOYSTICK: MOVE   JUMP: HOLD TO JUMP HIGHER   RUN: HOLD TO SPRINT', W / 2, 500, 8, '#cfe0ff', 'center');
+    text('(PUSHING THE JOYSTICK ALL THE WAY ALSO RUNS)', W / 2, 516, 7, '#9fb7d8', 'center');
+  } else {
+    if (G.frame % 60 < 40) text('<  >  CHOOSE     ENTER  START', W / 2, 474, 12, '#fff', 'center');
+    text('MOVE: ARROWS/WASD  JUMP: SPACE/Z  RUN: SHIFT/X  P: PAUSE  M: MUTE', W / 2, 500, 8, '#cfe0ff', 'center');
+  }
   if (G.hi) text('HI ' + pad(G.hi, 6), W - 16, 10, 8, '#ffd54f', 'right');
 }
 cv.addEventListener('click', e => {
-  audio.unlock(); cv.focus();
-  if (G.state !== 'title') return;
+  audio.unlock();
   const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left) * W / r.width, my = (e.clientY - r.top) * H / r.height;
-  for (let i = 0; i < CHARS.length; i++) { const P = PANEL(i);
-    if (mx > P.x && mx < P.x + P.w && my > P.y && my < P.y + P.h) { if (G.sel === i) { sfx.card(); startGame(); } else { G.sel = i; sfx.tick(); } } }
+  if (G.state === 'device') {
+    for (let i = 0; i < 2; i++) if (inRect(mx, my, DEV_BOX(i))) chooseDevice(i === 1);
+    return;
+  }
+  if (!G.mobile) cv.focus();
+  if (G.state === 'title') {
+    if (inRect(mx, my, BACK_BTN)) { G.state = 'device'; sfx.tick(); return; }
+    for (let i = 0; i < CHARS.length; i++)
+      if (inRect(mx, my, PANEL(i))) { if (G.sel === i) { sfx.card(); startGame(); } else { G.sel = i; sfx.tick(); } }
+  } else if (G.state === 'play') {
+    if (G.paused) {
+      if (inRect(mx, my, PAUSE_MENU[1])) { pressed.KeyM = true; }
+      else pressed.KeyP = true;                       // tap anywhere else resumes
+    } else if (G.mobile && inRect(mx, my, { x: PAUSE_BTN.x - 10, y: 0, w: PAUSE_BTN.w + 20, h: PAUSE_BTN.h + 20 })) pressed.KeyP = true;
+  } else if (G.state === 'gameover' || G.state === 'win') pressed.Enter = true;
 });
 
 function drawIntro() {
@@ -1095,17 +1210,62 @@ function drawGameOver() {
 function draw() {
   ctx.lineCap = 'butt';
   switch (G.state) {
+    case 'device': drawDevice(); break;
     case 'title': drawTitle(); break;
     case 'intro': drawIntro(); break;
     case 'gameover': drawGameOver(); break;
     case 'win': drawWin(); break;
     default:
       drawWorld(); drawHUD();
-      if (G.paused) { ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, W, H); text('PAUSED', W / 2, 240, 28, '#fff', 'center');
-        text('PRESS P TO RESUME', W / 2, 290, 10, '#cfe0ff', 'center'); }
+      if (G.mobile && G.state === 'play' && !G.paused) {
+        const B = PAUSE_BTN; ctx.fillStyle = 'rgba(0,0,0,0.35)'; rr(B.x, B.y, B.w, B.h, 8); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.fillRect(B.x + 15, B.y + 11, 6, 20); ctx.fillRect(B.x + 25, B.y + 11, 6, 20);
+      }
+      if (G.paused) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H); text('PAUSED', W / 2, 200, 28, '#fff', 'center');
+        if (G.mobile) {
+          const labels = ['RESUME', 'SOUND: ' + (audio.muted ? 'OFF' : 'ON')];
+          PAUSE_MENU.forEach((R, i) => { ctx.fillStyle = i ? 'rgba(10,20,40,0.9)' : 'rgba(0,53,107,0.95)'; rr(R.x, R.y, R.w, R.h, 10); ctx.fill();
+            ctx.strokeStyle = i ? 'rgba(255,255,255,0.5)' : '#ffd54f'; ctx.lineWidth = 3; ctx.stroke();
+            text(labels[i], W / 2, R.y + 18, 13, '#fff', 'center'); });
+        } else text('PRESS P TO RESUME', W / 2, 260, 10, '#cfe0ff', 'center');
+      }
   }
   if (audio.muted) text('MUTED', W - 16, H - 20, 8, '#fff', 'right');
 }
+
+// ---------------------------------------------------------------- touch controls
+function setVKey(code, on) { if (on && !keys[code]) pressed[code] = true; keys[code] = on; }
+(() => {
+  const stick = document.getElementById('stick'), knob = document.getElementById('knob');
+  let stickId = null;
+  const move = e => {
+    const r = stick.getBoundingClientRect(), R = r.width / 2;
+    let dx = e.clientX - (r.left + R), dy = e.clientY - (r.top + R);
+    const d = Math.hypot(dx, dy); if (d > R) { dx *= R / d; dy *= R / d; }
+    knob.style.transform = `translate(${dx}px,${dy}px)`;
+    const nx = dx / R;
+    setVKey('TouchLeft', nx < -0.3); setVKey('TouchRight', nx > 0.3); setVKey('TouchDash', Math.abs(nx) > 0.85);
+  };
+  const end = e => {
+    if (e.pointerId !== stickId) return;
+    stickId = null; knob.style.transform = '';
+    setVKey('TouchLeft', false); setVKey('TouchRight', false); setVKey('TouchDash', false);
+  };
+  stick.addEventListener('pointerdown', e => { e.preventDefault(); audio.unlock(); stickId = e.pointerId; try { stick.setPointerCapture(e.pointerId); } catch (_) {} move(e); });
+  stick.addEventListener('pointermove', e => { if (e.pointerId === stickId) move(e); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) stick.addEventListener(ev, end);
+  for (const [id, code] of [['btnJump', 'TouchJump'], ['btnRun', 'TouchRun']]) {
+    const b = document.getElementById(id); let pid = null;
+    b.addEventListener('pointerdown', e => { e.preventDefault(); audio.unlock(); pid = e.pointerId; try { b.setPointerCapture(e.pointerId); } catch (_) {} setVKey(code, true); b.classList.add('on'); });
+    const up = e => { if (e.pointerId !== pid) return; pid = null; setVKey(code, false); b.classList.remove('on'); };
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, up);
+  }
+  document.getElementById('touch').addEventListener('contextmenu', e => e.preventDefault());
+  // Pause automatically if the player switches apps mid-level
+  document.addEventListener('visibilitychange', () => { if (document.hidden && G.state === 'play' && !G.paused) { G.paused = true; music.stop(); } });
+})();
 
 // ---------------------------------------------------------------- main loop
 let last = performance.now(), acc = 0;
